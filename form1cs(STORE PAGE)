@@ -1,0 +1,193 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using MySql.Data.MySqlClient;
+using System.IO;
+
+namespace Uap
+{
+    public partial class Form1 : Form
+    {
+        string database = "server=localhost;uid=root;database=cukimai;Pwd=;";
+        public MySqlConnection koneksi;
+        public MySqlCommand cmd;
+        public MySqlDataAdapter adp;
+
+        private const string BASE_DEV_PATH = @"C:[r]
+
+        public class GameData
+        {
+            public string Name { get; set; }
+            public string Price { get; set; }
+            public string PicturePath { get; set; }
+            public bool IsValid { get; set; } = false;
+        }
+
+        public Form1()
+        {
+            InitializeComponent();
+
+            this.Load += new EventHandler(Form1_Load);
+
+            Login f = new Login();
+            f.ShowDialog();
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            LoadGameDisplays();
+        }
+
+        public void fQuery(string squery)
+        {
+            using (MySqlConnection koneksi = new MySqlConnection(database))
+            {
+                try
+                {
+                    koneksi.Open();
+                    using (MySqlCommand cmd = new MySqlCommand(squery, koneksi))
+                    {
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+                catch (Exception ali)
+                {
+                    MessageBox.Show(ali.Message);
+                }
+            }
+        }
+
+        private GameData GetGameDataById(int gameId)
+        {
+            GameData game = new GameData();
+
+            string query = "SELECT game_name, game_price, game_pic FROM gamesdata WHERE ID = @id LIMIT 1";
+
+            using (MySqlConnection connection = new MySqlConnection(database))
+            {
+                using (MySqlCommand command = new MySqlCommand(query, connection))
+                {
+                    command.Parameters.AddWithValue("@id", gameId);
+
+                    try
+                    {
+                        connection.Open();
+                        using (MySqlDataReader reader = command.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                game.Name = reader["game_name"].ToString();
+                                game.Price = reader["game_price"].ToString();
+                                game.PicturePath = reader["game_pic"].ToString();
+                                game.IsValid = true;
+                            }
+                        }
+                    }
+                    catch (MySqlException ex)
+                    {
+                        MessageBox.Show($"Error retrieving data for Game ID {gameId}: {ex.Message}", "Database Error");
+                    }
+                }
+            }
+            return game;
+        }
+
+        private string ResolveImagePath(string relativePath)
+        {
+            string defaultPath = Path.Combine(Application.StartupPath, relativePath);
+            if (File.Exists(defaultPath))
+            {
+                return defaultPath;
+            }
+
+            string devPath = Path.Combine(BASE_DEV_PATH, relativePath);
+            if (File.Exists(devPath))
+            {
+                return devPath;
+            }
+
+            return defaultPath;
+        }
+
+        private void SetGameDisplay(int slotNumber, GameData game)
+        {
+            PictureBox pb = this.Controls.Find("pbGameThumb" + slotNumber, true).FirstOrDefault() as PictureBox;
+            Label lblName = this.Controls.Find("lblGameName" + slotNumber, true).FirstOrDefault() as Label;
+            Label lblPrice = this.Controls.Find("lblGamePrice" + slotNumber, true).FirstOrDefault() as Label;
+
+            if (pb == null || lblName == null || lblPrice == null)
+            {
+                Console.WriteLine($"Controls for slot {slotNumber} not found!");
+                return;
+            }
+
+            if (game.IsValid)
+            {
+                lblName.Text = game.Name;
+                lblPrice.Text = "Rp " + game.Price;
+
+                if (!string.IsNullOrEmpty(game.PicturePath))
+                {
+                    try
+                    {
+                        string fullPath = ResolveImagePath(game.PicturePath);
+
+                        if (File.Exists(fullPath))
+                        {
+                            using (var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read))
+                            {
+                                pb.Image = Image.FromStream(stream);
+                            }
+
+                            pb.SizeMode = PictureBoxSizeMode.Zoom;
+                        }
+                        else
+                        {
+                            pb.Image = null;
+                            lblName.Text = "File Missing";
+                            lblPrice.Text = $"Path Check: {fullPath}";
+                        }
+
+                    }
+                    catch (Exception ex)
+                    {
+                        pb.Image = null;
+                        lblName.Text = "Image Load Failed";
+                        lblPrice.Text = "Error: " + ex.Message;
+                    }
+                }
+                else
+                {
+                    pb.Image = null;
+                    pb.Text = "No Path in DB";
+                }
+            }
+            else
+            {
+                lblName.Text = "No Game Available";
+                lblPrice.Text = "-";
+                pb.Image = null;
+            }
+        }
+
+        private void LoadGameDisplays()
+        {
+            int[] gameIds = { 1, 2, 3, 4, 5, 6 };
+
+            int slotNumber = 1;
+
+            foreach (int id in gameIds)
+            {
+                GameData game = GetGameDataById(id);
+                SetGameDisplay(slotNumber, game);
+                slotNumber++;
+            }
+        }
+    }
+}
