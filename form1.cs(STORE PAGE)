@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using MySql.Data.MySqlClient;
 using System.IO;
+using System.Globalization;
 
 namespace Uap
 {
@@ -21,11 +22,13 @@ namespace Uap
 
         private const string BASE_DEV_PATH = @"C:[r]
 
+
         public class GameData
         {
             public string Name { get; set; }
             public string Price { get; set; }
             public string PicturePath { get; set; }
+            public string Comment { get; set; }
             public bool IsValid { get; set; } = false;
         }
 
@@ -63,11 +66,42 @@ namespace Uap
             }
         }
 
+        private List<int> GetRandomGameIds()
+        {
+            List<int> gameIds = new List<int>();
+
+            string query = "SELECT ID FROM gamesdata ORDER BY RAND() LIMIT 6";
+
+            using (MySqlConnection connection = new MySqlConnection(database))
+            {
+                using (MySqlCommand command = new MySqlCommand(query, connection))
+                {
+                    try
+                    {
+                        connection.Open();
+                        using (MySqlDataReader reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                gameIds.Add(reader.GetInt32("ID"));
+                            }
+                        }
+                    }
+                    catch (MySqlException ex)
+                    {
+                        MessageBox.Show($"Error retrieving random game IDs: {ex.Message}", "Database Error");
+                    }
+                }
+            }
+            return gameIds;
+        }
+
+
         private GameData GetGameDataById(int gameId)
         {
             GameData game = new GameData();
 
-            string query = "SELECT game_name, game_price, game_pic FROM gamesdata WHERE ID = @id LIMIT 1";
+            string query = "SELECT game_name, game_price, game_pic, game_comments FROM gamesdata WHERE ID = @id LIMIT 1";
 
             using (MySqlConnection connection = new MySqlConnection(database))
             {
@@ -85,6 +119,9 @@ namespace Uap
                                 game.Name = reader["game_name"].ToString();
                                 game.Price = reader["game_price"].ToString();
                                 game.PicturePath = reader["game_pic"].ToString();
+
+                                game.Comment = reader["game_comments"].ToString();
+
                                 game.IsValid = true;
                             }
                         }
@@ -98,39 +135,67 @@ namespace Uap
             return game;
         }
 
-        private string ResolveImagePath(string relativePath)
+        private string FormatGamePrice(string price)
         {
-            string defaultPath = Path.Combine(Application.StartupPath, relativePath);
-            if (File.Exists(defaultPath))
+            if (price.Trim().Equals("Free To Play", StringComparison.OrdinalIgnoreCase) ||
+                price.Trim().Equals("F2P", StringComparison.OrdinalIgnoreCase) ||
+                price.Trim().Equals("0", StringComparison.OrdinalIgnoreCase))
             {
-                return defaultPath;
+                return "Free To Play";
             }
 
+            if (int.TryParse(price, out int priceValue))
+            {
+                CultureInfo idCulture = new CultureInfo("id-ID");
+
+                return string.Format(idCulture, "Rp {0:N0}", priceValue);
+            }
+
+            return price;
+        }
+
+
+        private string ResolveImagePath(string relativePath)
+        {
             string devPath = Path.Combine(BASE_DEV_PATH, relativePath);
             if (File.Exists(devPath))
             {
                 return devPath;
             }
 
+            string defaultPath = Path.Combine(Application.StartupPath, relativePath);
+            if (File.Exists(defaultPath))
+            {
+                return defaultPath;
+            }
+
             return defaultPath;
         }
+
 
         private void SetGameDisplay(int slotNumber, GameData game)
         {
             PictureBox pb = this.Controls.Find("pbGameThumb" + slotNumber, true).FirstOrDefault() as PictureBox;
             Label lblName = this.Controls.Find("lblGameName" + slotNumber, true).FirstOrDefault() as Label;
             Label lblPrice = this.Controls.Find("lblGamePrice" + slotNumber, true).FirstOrDefault() as Label;
+            TextBox txtComment = this.Controls.Find("txtGameComment" + slotNumber, true).FirstOrDefault() as TextBox;
+
 
             if (pb == null || lblName == null || lblPrice == null)
             {
-                Console.WriteLine($"Controls for slot {slotNumber} not found!");
                 return;
             }
 
             if (game.IsValid)
             {
                 lblName.Text = game.Name;
-                lblPrice.Text = "Rp " + game.Price;
+
+                lblPrice.Text = FormatGamePrice(game.Price);
+
+                if (txtComment != null)
+                {
+                    txtComment.Text = game.Comment;
+                }
 
                 if (!string.IsNullOrEmpty(game.PicturePath))
                 {
@@ -144,50 +209,58 @@ namespace Uap
                             {
                                 pb.Image = Image.FromStream(stream);
                             }
-
                             pb.SizeMode = PictureBoxSizeMode.Zoom;
                         }
                         else
                         {
                             pb.Image = null;
-                            lblName.Text = "File Missing";
-                            lblPrice.Text = $"Path Check: {fullPath}";
+                            pb.Text = "Image File Missing";
                         }
-
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
                         pb.Image = null;
-                        lblName.Text = "Image Load Failed";
-                        lblPrice.Text = "Error: " + ex.Message;
+                        pb.Text = "Error Loading Image";
                     }
                 }
                 else
                 {
                     pb.Image = null;
-                    pb.Text = "No Path in DB";
+                    pb.Text = "No Image Path";
                 }
             }
             else
             {
-                lblName.Text = "No Game Available";
+                lblName.Text = "Slot Empty";
                 lblPrice.Text = "-";
+                if (txtComment != null) txtComment.Text = "";
                 pb.Image = null;
+                pb.Text = "";
             }
         }
 
+
         private void LoadGameDisplays()
         {
-            int[] gameIds = { 1, 2, 3, 4, 5, 6 };
-
+            List<int> randomIds = GetRandomGameIds();
             int slotNumber = 1;
 
-            foreach (int id in gameIds)
+            foreach (int id in randomIds)
             {
                 GameData game = GetGameDataById(id);
                 SetGameDisplay(slotNumber, game);
                 slotNumber++;
             }
+
+            for (int i = slotNumber; i <= 6; i++)
+            {
+                SetGameDisplay(i, new GameData());
+            }
+        }
+
+        private void btnNext_Click(object sender, EventArgs e)
+        {
+            LoadGameDisplays();
         }
     }
 }
