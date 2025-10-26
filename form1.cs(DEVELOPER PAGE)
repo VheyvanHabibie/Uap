@@ -67,6 +67,14 @@ namespace UapForDeveloper
                 + txtGameNameDev.Text + "','"+txtGamePriceDev.Text+"','"+txtGamePubDev.Text+"','"+txtGameTagsDev.Text+"','"
                 +txtGameSizeDev.Text+"','"+txtGameComDev.Text+"','"+txtGameDescDev.Text+"','"+txtFotoDev.Text+"')");
             MessageBox.Show("your game have been published!");
+            txtFotoDev.Clear();
+            txtGameComDev.Clear();
+            txtGameDescDev.Clear();
+            txtGameNameDev.Clear();
+            txtGamePriceDev.Clear();
+            txtGamePubDev.Clear();
+            txtGameSizeDev.Clear();
+            txtGameTagsDev.Clear();
         }
     }
 }
