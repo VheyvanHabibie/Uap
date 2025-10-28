@@ -1,0 +1,266 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using MySql.Data.MySqlClient;
+using System.IO;
+using System.Globalization;
+
+namespace Uap
+{
+    public partial class Form1 : Form
+    {
+        string database = "server=localhost;uid=root;database=cukimai;Pwd=;";
+        public MySqlConnection koneksi;
+        public MySqlCommand cmd;
+        public MySqlDataAdapter adp;
+
+        private const string BASE_DEV_PATH = @"C:\Users\ASUS\source\repos\UapForDeveloper\UapForDeveloper\bin\Debug\";
+
+
+        public class GameData
+        {
+            public string Name { get; set; }
+            public string Price { get; set; }
+            public string PicturePath { get; set; }
+            public string Comment { get; set; }
+            public bool IsValid { get; set; } = false;
+        }
+
+        public Form1()
+        {
+            InitializeComponent();
+
+            this.Load += new EventHandler(Form1_Load);
+
+            Login f = new Login();
+            f.ShowDialog();
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            LoadGameDisplays();
+        }
+
+        public void fQuery(string squery)
+        {
+            using (MySqlConnection koneksi = new MySqlConnection(database))
+            {
+                try
+                {
+                    koneksi.Open();
+                    using (MySqlCommand cmd = new MySqlCommand(squery, koneksi))
+                    {
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+                catch (Exception ali)
+                {
+                    MessageBox.Show(ali.Message);
+                }
+            }
+        }
+
+        private List<int> GetRandomGameIds()
+        {
+            List<int> gameIds = new List<int>();
+
+            string query = "SELECT ID FROM gamesdata ORDER BY RAND() LIMIT 6";
+
+            using (MySqlConnection connection = new MySqlConnection(database))
+            {
+                using (MySqlCommand command = new MySqlCommand(query, connection))
+                {
+                    try
+                    {
+                        connection.Open();
+                        using (MySqlDataReader reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                gameIds.Add(reader.GetInt32("ID"));
+                            }
+                        }
+                    }
+                    catch (MySqlException ex)
+                    {
+                        MessageBox.Show($"Error retrieving random game IDs: {ex.Message}", "Database Error");
+                    }
+                }
+            }
+            return gameIds;
+        }
+
+
+        private GameData GetGameDataById(int gameId)
+        {
+            GameData game = new GameData();
+
+            string query = "SELECT game_name, game_price, game_pic, game_comments FROM gamesdata WHERE ID = @id LIMIT 1";
+
+            using (MySqlConnection connection = new MySqlConnection(database))
+            {
+                using (MySqlCommand command = new MySqlCommand(query, connection))
+                {
+                    command.Parameters.AddWithValue("@id", gameId);
+
+                    try
+                    {
+                        connection.Open();
+                        using (MySqlDataReader reader = command.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                game.Name = reader["game_name"].ToString();
+                                game.Price = reader["game_price"].ToString();
+                                game.PicturePath = reader["game_pic"].ToString();
+
+                                game.Comment = reader["game_comments"].ToString();
+
+                                game.IsValid = true;
+                            }
+                        }
+                    }
+                    catch (MySqlException ex)
+                    {
+                        MessageBox.Show($"Error retrieving data for Game ID {gameId}: {ex.Message}", "Database Error");
+                    }
+                }
+            }
+            return game;
+        }
+
+        private string FormatGamePrice(string price)
+        {
+            if (price.Trim().Equals("Free To Play", StringComparison.OrdinalIgnoreCase) ||
+                price.Trim().Equals("F2P", StringComparison.OrdinalIgnoreCase) ||
+                price.Trim().Equals("0", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Free To Play";
+            }
+
+            if (int.TryParse(price, out int priceValue))
+            {
+                CultureInfo idCulture = new CultureInfo("id-ID");
+
+                return string.Format(idCulture, "Rp {0:N0}", priceValue);
+            }
+
+            return price;
+        }
+
+
+        private string ResolveImagePath(string relativePath)
+        {
+            string devPath = Path.Combine(BASE_DEV_PATH, relativePath);
+            if (File.Exists(devPath))
+            {
+                return devPath;
+            }
+
+            string defaultPath = Path.Combine(Application.StartupPath, relativePath);
+            if (File.Exists(defaultPath))
+            {
+                return defaultPath;
+            }
+
+            return defaultPath;
+        }
+
+
+        private void SetGameDisplay(int slotNumber, GameData game)
+        {
+            PictureBox pb = this.Controls.Find("pbGameThumb" + slotNumber, true).FirstOrDefault() as PictureBox;
+            Label lblName = this.Controls.Find("lblGameName" + slotNumber, true).FirstOrDefault() as Label;
+            Label lblPrice = this.Controls.Find("lblGamePrice" + slotNumber, true).FirstOrDefault() as Label;
+            TextBox txtComment = this.Controls.Find("txtGameComment" + slotNumber, true).FirstOrDefault() as TextBox;
+
+
+            if (pb == null || lblName == null || lblPrice == null)
+            {
+                return;
+            }
+
+            if (game.IsValid)
+            {
+                lblName.Text = game.Name;
+
+                lblPrice.Text = FormatGamePrice(game.Price);
+
+                if (txtComment != null)
+                {
+                    txtComment.Text = game.Comment;
+                }
+
+                if (!string.IsNullOrEmpty(game.PicturePath))
+                {
+                    try
+                    {
+                        string fullPath = ResolveImagePath(game.PicturePath);
+
+                        if (File.Exists(fullPath))
+                        {
+                            using (var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read))
+                            {
+                                pb.Image = Image.FromStream(stream);
+                            }
+                            pb.SizeMode = PictureBoxSizeMode.Zoom;
+                        }
+                        else
+                        {
+                            pb.Image = null;
+                            pb.Text = "Image File Missing";
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        pb.Image = null;
+                        pb.Text = "Error Loading Image";
+                    }
+                }
+                else
+                {
+                    pb.Image = null;
+                    pb.Text = "No Image Path";
+                }
+            }
+            else
+            {
+                lblName.Text = "Slot Empty";
+                lblPrice.Text = "-";
+                if (txtComment != null) txtComment.Text = "";
+                pb.Image = null;
+                pb.Text = "";
+            }
+        }
+
+
+        private void LoadGameDisplays()
+        {
+            List<int> randomIds = GetRandomGameIds();
+            int slotNumber = 1;
+
+            foreach (int id in randomIds)
+            {
+                GameData game = GetGameDataById(id);
+                SetGameDisplay(slotNumber, game);
+                slotNumber++;
+            }
+
+            for (int i = slotNumber; i <= 6; i++)
+            {
+                SetGameDisplay(i, new GameData());
+            }
+        }
+
+        private void btnNext_Click(object sender, EventArgs e)
+        {
+            LoadGameDisplays();
+        }
+    }
+}
