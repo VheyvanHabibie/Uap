@@ -1,0 +1,81 @@
+﻿using System.IO;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using MySql.Data.MySqlClient;
+
+namespace UapForDeveloper
+{
+    public partial class Form1 : Form
+    {
+        string database = "server=localhost;uid=root;database=cukimai;pwd=;";
+        public MySqlConnection koneksi;
+        public MySqlCommand cmd;
+        public MySqlDataAdapter adp;
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        public void fQuery(string squery)
+        {
+            using (MySqlConnection koneksi = new MySqlConnection(database))
+            {
+                try
+                {
+                    koneksi.Open();
+                    using (MySqlCommand cmd = new MySqlCommand(squery, koneksi))
+                    {
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+                catch (Exception ali)
+                {
+                    MessageBox.Show(ali.Message);
+                }
+            }
+        }
+
+        private void BtnBrowse_Click(object sender, EventArgs e)
+        {
+            OpenFileDialog openFileDialog = new OpenFileDialog();
+            openFileDialog.Filter = "Image Files|*.jpeg;*.png;*.gif;*.bmp";
+            openFileDialog.Title = "Select an image file";
+
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                string sumberPath = openFileDialog.FileName;
+                string namaFile = Guid.NewGuid().ToString() + Path.GetExtension(sumberPath);
+                string destinasiPath = Path.Combine(Application.StartupPath, "images", namaFile);
+                Directory.CreateDirectory(Path.Combine(Application.StartupPath, "images"));
+                File.Copy(sumberPath, destinasiPath, true);
+                string relativePath = "images/" + namaFile;
+                txtFotoDev.Text = relativePath;
+                pictureBox1.Image = new System.Drawing.Bitmap(destinasiPath);
+            }
+        }
+
+        private void BtnSaveGameData_Click(object sender, EventArgs e)
+        {
+            fQuery("INSERT INTO gamesdata (game_name, game_price, game_publisher, game_tags, game_size, game_comments, game_desc, game_pic) VALUES('"
+                + txtGameNameDev.Text + "','"+txtGamePriceDev.Text+"','"+txtGamePubDev.Text+"','"+txtGameTagsDev.Text+"','"
+                +txtGameSizeDev.Text+"','"+txtGameComDev.Text+"','"+txtGameDescDev.Text+"','"+txtFotoDev.Text+"')");
+            MessageBox.Show("your game have been published!");
+            txtFotoDev.Clear();
+            txtGameComDev.Clear();
+            txtGameDescDev.Clear();
+            txtGameNameDev.Clear();
+            txtGamePriceDev.Clear();
+            txtGamePubDev.Clear();
+            txtGameSizeDev.Clear();
+            txtGameTagsDev.Clear();
+            
+        }
+    }
+}
