@@ -1,0 +1,626 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using MySql.Data.MySqlClient;
+using System.IO;
+using System.Globalization;
+
+namespace Uap
+{
+    public partial class Form1 : Form
+    {
+        string database = "server=localhost;uid=root;database=cukimai;Pwd=;";
+        public MySqlConnection koneksi;
+        public MySqlCommand cmd;
+        public MySqlDataAdapter adp;
+
+        private const string BASE_DEV_PATH = @"C:\Users\ASUS\source\repos\UapForDeveloper\UapForDeveloper\bin\Debug\";
+        private List<LibraryItem> MyLibraryGames;
+
+        public class GameData
+        {
+            public string Name { get; set; }
+            public string Price { get; set; }
+            public string PicturePath { get; set; }
+            public string Comment { get; set; }
+            public bool IsValid { get; set; } = false;
+        }
+
+        public class LibraryItem
+        {
+            public int ID { get; set; }
+            public string Title { get; set; }        
+            public string Description { get; set; }  
+            public string CoverImagePath { get; set; } 
+            public string GameSize { get; set; }     
+
+            public TimeSpan TotalPlayTime { get; set; }
+            public bool IsInstalled { get; set; }
+
+            public override string ToString()
+            {
+                return Title;
+            }
+        }
+
+
+        private void DisplayGameDetails(LibraryItem game)
+        {
+            if (game == null) return;
+
+          
+            lblGameTitle.Text = game.Title;
+            lblPlayTime.Text = $"PLAY TIME: {game.TotalPlayTime.TotalHours:N1} hours";
+
+            
+            if (game.IsInstalled)
+            {
+                btnPlayInstall.Text = "PLAY";
+                btnPlayInstall.BackColor = Color.Green;
+            }
+            else
+            {
+                btnPlayInstall.Text = $"INSTALL ({game.GameSize})";
+                btnPlayInstall.BackColor = Color.Blue;
+            }
+            btnPlayInstall.ForeColor = Color.White;
+
+         
+            UpdateLibraryCover(pbGameCover, game.CoverImagePath);
+
+        }
+
+        private void InitializeLibraryData()
+        {
+            MyLibraryGames = new List<LibraryItem>();
+           
+            string query = "SELECT ID, game_name, game_desc, game_pic, game_size FROM gamesdata";
+
+            using (MySqlConnection connection = new MySqlConnection(database))
+            {
+                try
+                {
+                    connection.Open();
+                    MySqlCommand cmd = new MySqlCommand(query, connection);
+                    using (MySqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            int gameId = reader.GetInt32("ID");
+
+                         
+                            TimeSpan playTime = (gameId % 3 == 0) ? TimeSpan.FromHours(50) : TimeSpan.Zero;
+                            bool installed = (gameId % 2 != 0);
+
+                            MyLibraryGames.Add(new LibraryItem
+                            {
+                                ID = gameId,
+                                Title = reader.GetString("game_name"),
+                                Description = reader.GetString("game_desc"),
+                                CoverImagePath = reader.GetString("game_pic"),
+                                GameSize = reader.GetString("game_size"),
+                                TotalPlayTime = playTime,
+                                IsInstalled = installed
+                            });
+                        }
+                    }
+                }
+                catch (MySqlException ex)
+                {
+                    MessageBox.Show($"Error initializing library data: {ex.Message}", "Database Error");
+                }
+            }
+        }
+
+        public Form1()
+        {
+            InitializeComponent();
+
+            this.Load += new EventHandler(Form1_Load);
+
+            Login f = new Login();
+            f.ShowDialog();
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            LoadGameDisplays();
+            InitializeLibraryData();
+            LoadLibraryDisplay();
+            LoadPosts();
+        }
+
+
+        private void btnBrowse_Click(object sender, EventArgs e)
+        {
+            if (openFileDialog1.ShowDialog() == DialogResult.OK)
+            {
+                using (System.IO.FileStream fs = new System.IO.FileStream(openFileDialog1.FileName, System.IO.FileMode.Open, System.IO.FileAccess.Read))
+                {
+                    if (picPreview.Image != null)
+                    {
+                        picPreview.Image.Dispose();
+                    }
+
+                    picPreview.Image = Image.FromStream(fs);
+                    picPreview.Tag = openFileDialog1.FileName;
+                }
+            }
+        }
+
+        private void btnPost_Click(object sender, EventArgs e)
+        {
+            string username = "ArulGaming";
+            string content = txtPost.Text;
+            string imagePath = "";
+
+            if (picPreview.Tag != null)
+            {
+                string folder = Application.StartupPath + "\\uploads\\";
+                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+
+                string fileName = Path.GetFileName(picPreview.Tag.ToString());
+                File.Copy(picPreview.Tag.ToString(), folder + fileName, true);
+                imagePath = folder + fileName;
+            }
+
+            using (MySqlConnection conn = new MySqlConnection(database))
+            {
+                conn.Open();
+                string sql = "INSERT INTO posts (username, content, image_path) VALUES (@u,@c,@i)";
+                MySqlCommand cmd = new MySqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@u", username);
+                cmd.Parameters.AddWithValue("@c", content);
+                cmd.Parameters.AddWithValue("@i", imagePath);
+                cmd.ExecuteNonQuery();
+            }
+
+            txtPost.Clear();
+            picPreview.Image = null;
+            LoadPosts();
+        }
+
+        private void LoadPosts()
+        {
+            flowPosts.Controls.Clear();
+
+            using (MySqlConnection conn = new MySqlConnection(database))
+            {
+                conn.Open();
+                string sql = "SELECT * FROM post ORDER BY created_at DESC";
+                MySqlCommand cmd = new MySqlCommand(sql, conn);
+                MySqlDataReader r = cmd.ExecuteReader();
+
+                while (r.Read())
+                {
+                    Panel postPanel = new Panel();
+                    postPanel.Width = flowPosts.Width - 25;
+                    postPanel.Height = 220;
+                    postPanel.BackColor = Color.FromArgb(45, 45, 48);
+                    postPanel.Margin = new Padding(10);
+
+                    Label lblUser = new Label();
+                    lblUser.Text = r["username"].ToString();
+                    lblUser.ForeColor = Color.LightBlue;
+                    lblUser.Font = new Font("Segoe UI", 10, FontStyle.Bold);
+                    lblUser.Location = new Point(10, 10);
+
+                    Label lblText = new Label();
+                    lblText.Text = r["content"].ToString();
+                    lblText.ForeColor = Color.White;
+                    lblText.Location = new Point(10, 40);
+                    lblText.AutoSize = true;
+
+                    PictureBox pic = new PictureBox();
+                    pic.Location = new Point(10, 70);
+                    pic.Size = new Size(200, 120);
+                    pic.SizeMode = PictureBoxSizeMode.Zoom;
+                    if (File.Exists(r["image_path"].ToString()))
+                        pic.Image = Image.FromFile(r["image_path"].ToString());
+
+                    TextBox txtComment = new TextBox();
+                    txtComment.Width = 200;
+                    txtComment.Location = new Point(220, 160);
+
+                    Button btnComment = new Button();
+                    btnComment.Text = "Komen";
+                    btnComment.Location = new Point(430, 160);
+                    btnComment.Click += (s, e) =>
+                    {
+                        AddComment(Convert.ToInt32(r["id"]), "You", txtComment.Text);
+                        txtComment.Clear();
+                        LoadPosts();
+                    };
+
+                    postPanel.Controls.Add(lblUser);
+                    postPanel.Controls.Add(lblText);
+                    postPanel.Controls.Add(pic);
+                    postPanel.Controls.Add(txtComment);
+                    postPanel.Controls.Add(btnComment);
+
+                    flowPosts.Controls.Add(postPanel);
+                }
+            }
+        }
+
+        private void AddComment(int postId, string username, string comment)
+        {
+            using (MySqlConnection conn = new MySqlConnection(database))
+            {
+                conn.Open();
+                string sql = "INSERT INTO comments (post_id, username, comment_text) VALUES (@p,@u,@c)";
+                MySqlCommand cmd = new MySqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@p", postId);
+                cmd.Parameters.AddWithValue("@u", username);
+                cmd.Parameters.AddWithValue("@c", comment);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+
+
+
+        private void LoadLibraryDisplay()
+        {
+           
+            lbxGames.Items.Clear();
+
+            if (MyLibraryGames == null || MyLibraryGames.Count == 0)
+            {
+                InitializeLibraryData(); 
+            }
+
+            foreach (var game in MyLibraryGames)
+            {
+                lbxGames.Items.Add(game);
+            }
+
+          
+            if (lbxGames.Items.Count > 0)
+            {
+                lbxGames.SelectedIndex = 0;
+            }
+        }
+
+        private void UpdateLibraryCover(PictureBox pb, string relativePath)
+        {
+           
+            if (pb.Image != null)
+            {
+                pb.Image.Dispose();
+                pb.Image = null;
+            }
+
+            if (string.IsNullOrEmpty(relativePath))
+            {
+                pb.Image = null;
+                pb.Text = "No Image Path";
+                return;
+            }
+
+            try
+            {
+                string fullPath = ResolveImagePath(relativePath);
+
+                if (File.Exists(fullPath))
+                {
+                    
+                    using (var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read))
+                    {
+                        using (Image tempImage = Image.FromStream(stream))
+                        {
+                            pb.Image = new Bitmap(tempImage);
+                        }
+                    }
+                    pb.SizeMode = PictureBoxSizeMode.Zoom;
+                }
+                else
+                {
+                    pb.Image = null;
+                    pb.Text = "Image File Missing";
+                }
+            }
+            catch (Exception ex)
+            {
+                pb.Image = null;
+                MessageBox.Show($"Error loading image: {ex.Message}");
+            }
+        }
+
+
+
+
+
+        public void fQuery(string squery)
+        {
+            using (MySqlConnection koneksi = new MySqlConnection(database))
+            {
+                try
+                {
+                    koneksi.Open();
+                    using (MySqlCommand cmd = new MySqlCommand(squery, koneksi))
+                    {
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+                catch (Exception ali)
+                {
+                    MessageBox.Show(ali.Message);
+                }
+            }
+        }
+
+        private List<int> GetRandomGameIds()
+        {
+            List<int> gameIds = new List<int>();
+
+            string query = "SELECT ID FROM gamesdata ORDER BY RAND() LIMIT 6";
+
+            using (MySqlConnection connection = new MySqlConnection(database))
+            {
+                using (MySqlCommand command = new MySqlCommand(query, connection))
+                {
+                    try
+                    {
+                        connection.Open();
+                        using (MySqlDataReader reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                gameIds.Add(reader.GetInt32("ID"));
+                            }
+                        }
+                    }
+                    catch (MySqlException ex)
+                    {
+                        MessageBox.Show($"Error retrieving random game IDs: {ex.Message}", "Database Error");
+                    }
+                }
+            }
+            return gameIds;
+        }
+
+
+        private GameData GetGameDataById(int gameId)
+        {
+            GameData game = new GameData();
+
+            string query = "SELECT game_name, game_price, game_pic, game_comments FROM gamesdata WHERE ID = @id LIMIT 1";
+
+            using (MySqlConnection connection = new MySqlConnection(database))
+            {
+                using (MySqlCommand command = new MySqlCommand(query, connection))
+                {
+                    command.Parameters.AddWithValue("@id", gameId);
+
+                    try
+                    {
+                        connection.Open();
+                        using (MySqlDataReader reader = command.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                game.Name = reader["game_name"].ToString();
+                                game.Price = reader["game_price"].ToString();
+                                game.PicturePath = reader["game_pic"].ToString();
+
+                                game.Comment = reader["game_comments"].ToString();
+
+                                game.IsValid = true;
+                            }
+                        }
+                    }
+                    catch (MySqlException ex)
+                    {
+                        MessageBox.Show($"Error retrieving data for Game ID {gameId}: {ex.Message}", "Database Error");
+                    }
+                }
+            }
+            return game;
+        }
+
+        private string FormatGamePrice(string price)
+        {
+            if (price.Trim().Equals("Free To Play", StringComparison.OrdinalIgnoreCase) ||
+                price.Trim().Equals("F2P", StringComparison.OrdinalIgnoreCase) ||
+                price.Trim().Equals("0", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Free To Play";
+            }
+
+            if (int.TryParse(price, out int priceValue))
+            {
+                CultureInfo idCulture = new CultureInfo("id-ID");
+
+                return string.Format(idCulture, "Rp {0:N0}", priceValue);
+            }
+
+            return price;
+        }
+
+
+        private string ResolveImagePath(string relativePath)
+        {
+            string devPath = Path.Combine(BASE_DEV_PATH, relativePath);
+            if (File.Exists(devPath))
+            {
+                return devPath;
+            }
+
+            string defaultPath = Path.Combine(Application.StartupPath, relativePath);
+            if (File.Exists(defaultPath))
+            {
+                return defaultPath;
+            }
+
+            return defaultPath;
+        }
+
+
+        private void SetGameDisplay(int slotNumber, GameData game)
+        {
+            PictureBox pb = this.Controls.Find("pbGameThumb" + slotNumber, true).FirstOrDefault() as PictureBox;
+            Label lblName = this.Controls.Find("lblGameName" + slotNumber, true).FirstOrDefault() as Label;
+            Label lblPrice = this.Controls.Find("lblGamePrice" + slotNumber, true).FirstOrDefault() as Label;
+            TextBox txtComment = this.Controls.Find("txtGameComment" + slotNumber, true).FirstOrDefault() as TextBox;
+
+
+            if (pb == null || lblName == null || lblPrice == null)
+            {
+                return;
+            }
+
+            if (game.IsValid)
+            {
+                lblName.Text = game.Name;
+
+                lblPrice.Text = FormatGamePrice(game.Price);
+
+                if (txtComment != null)
+                {
+                    txtComment.Text = game.Comment;
+                }
+
+                if (!string.IsNullOrEmpty(game.PicturePath))
+                {
+                    try
+                    {
+                        string fullPath = ResolveImagePath(game.PicturePath);
+
+                        if (File.Exists(fullPath))
+                        {
+                            using (var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read))
+                            {
+                                pb.Image = Image.FromStream(stream);
+                            }
+                            pb.SizeMode = PictureBoxSizeMode.Zoom;
+                        }
+                        else
+                        {
+                            pb.Image = null;
+                            pb.Text = "Image File Missing";
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        pb.Image = null;
+                        pb.Text = "Error Loading Image";
+                    }
+                }
+                else
+                {
+                    pb.Image = null;
+                    pb.Text = "No Image Path";
+                }
+            }
+            else
+            {
+                lblName.Text = "Slot Empty";
+                lblPrice.Text = "-";
+                if (txtComment != null) txtComment.Text = "";
+                pb.Image = null;
+                pb.Text = "";
+            }
+        }
+
+
+        private void LoadGameDisplays()
+        {
+            List<int> randomIds = GetRandomGameIds();
+            int slotNumber = 1;
+
+            foreach (int id in randomIds)
+            {
+                GameData game = GetGameDataById(id);
+                SetGameDisplay(slotNumber, game);
+                slotNumber++;
+            }
+
+            for (int i = slotNumber; i <= 6; i++)
+            {
+                SetGameDisplay(i, new GameData());
+            }
+        }
+
+        private void btnNext_Click(object sender, EventArgs e)
+        {
+            LoadGameDisplays();
+        }
+
+        private void Button1_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void PictureBox1_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void ListBox1_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (lbxGames.SelectedItem is LibraryItem selectedGame)
+            {
+                DisplayGameDetails(selectedGame);
+            }
+        }
+
+        private void PbGameCover_Click(object sender, EventArgs e)
+        {
+            
+        }
+
+        private void BtnPlayInstall_Click(object sender, EventArgs e)
+        {
+            if (lbxGames.SelectedItem is LibraryItem selectedGame)
+            {
+                if (selectedGame.IsInstalled)
+                {
+                    selectedGame.TotalPlayTime = selectedGame.TotalPlayTime.Add(TimeSpan.FromHours(0.5));
+                    MessageBox.Show($"Starting {selectedGame.Title}...\nWaktu bermain bertambah! Total: {selectedGame.TotalPlayTime.TotalHours:N1} jam", "Game Started");
+
+                    PictureBox pbScreenshot = this.Controls.Find("pbGameScreenshot", true).FirstOrDefault() as PictureBox;
+
+                    if (pbScreenshot != null)
+                    {
+                        string imagePath = selectedGame.CoverImagePath;
+
+                       
+
+                        UpdateLibraryCover(pbScreenshot, imagePath);
+                        pbScreenshot.Visible = true; 
+                    }
+
+                    DisplayGameDetails(selectedGame);
+                    lbxGames.Refresh();
+                }
+                else
+                {   
+                    selectedGame.IsInstalled = true;
+                    MessageBox.Show($"Installation of {selectedGame.Title} complete!", "Installation");
+                    DisplayGameDetails(selectedGame);
+                }
+            }
+            else
+            {
+                MessageBox.Show("Please select a game from the Library list first.", "No Selection");
+            }
+        }
+
+        private void TabPage3_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void STORE_Click(object sender, EventArgs e)
+        {
+
+        }
+    }
+}
